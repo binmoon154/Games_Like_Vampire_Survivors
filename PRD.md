@@ -6,6 +6,28 @@
 
 
 
+-codex 사용법-
+codex는 무료로 사용 가능하며 확장(Ctrl + Shift + X)에서 마켓플레이스에서 확장 검색이라는 검색창을 클릭하고 codex를 검색해 codex - OpenAi's coding agent를 설치함
+
+
+
+-claude code 사용법-
+claude를 연결하여 사용하기 위해서는 무료 계정이 아니라 유료 계정을 사용해야 쓸 수 있음
+확장(Ctrl + Shift + X)에서 마켓플레이스에서 확장 검색이라는 검색창을 클릭하고 claude code를 검색해 설치함
+
+
+-변경 내용 올리는 법-
+변경 내용을 올리기 위해서는 소스제어(Ctrl +Shift + G)로 들어가 변경사항 아래에 있는 코드에 마우스를 올리면 나오는 오른쪽에 있는 '+' 버튼을 누르고, 위에 있는 메시지에 바뀐 내용이나 쓰거 싶은 말을 적는다. 그리고 커밋을 누르면 된다.
+
+
+
+
+
+
+
+
+
+-unity 협업 방법-
 unity 협업 방법 돈을 내고 Unity Version Control 쓰기
 
 Unity Studio의 Real-time collaboration 기능으로 가능함
