@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>뱀서라이크 생존 액션</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      overflow: hidden;
+      background: #10131c;
+      color: white;
+      font-family: system-ui, sans-serif;
+      touch-action: none;
+    }
+    #game {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      image-rendering: pixelated;
+    }
+    .screen {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(10, 12, 20, .84);
+      z-index: 5;
+    }
+    .panel {
+      width: min(92vw, 720px);
+      padding: 28px;
+      border: 2px solid #58617b;
+      border-radius: 18px;
+      background: #1c2232;
+      text-align: center;
+      box-shadow: 0 12px 50px #0008;
+    }
+    h1 { color: #ffd166; margin-top: 0; }
+    button {
+      min-width: 150px;
+      min-height: 48px;
+      margin: 8px;
+      border: 0;
+      border-radius: 10px;
+      background: #4cc9f0;
+      color: #071018;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .cards {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .card {
+      flex: 1 1 160px;
+      min-height: 130px;
+      padding: 16px;
+      border: 2px solid #66708d;
+      border-radius: 12px;
+      background: #293149;
+      color: white;
+      cursor: pointer;
+    }
+    .card:hover { border-color: #ffd166; }
+    #hud {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 2;
+      padding: 12px;
+      pointer-events: none;
+      text-shadow: 1px 2px #000;
+    }
+    .bar {
+      height: 16px;
+      max-width: 420px;
+      margin: 4px 0;
+      overflow: hidden;
+      border: 2px solid #111;
+      border-radius: 8px;
+      background: #33394b;
+    }
+    .fill { height: 100%; transition: width .1s; }
+    #hpFill { background: #ef476f; }
+    #xpFill { background: #06d6a0; }
+    #pause {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 3;
+      min-width: 48px;
+      width: 48px;
+      height: 44px;
+      padding: 0;
+      pointer-events: auto;
+    }
+    #joystick {
+      position: fixed;
+      left: 24px;
+      bottom: 24px;
+      z-index: 3;
+      width: 120px;
+      height: 120px;
+      border: 2px solid #ffffff55;
+      border-radius: 50%;
+      background: #ffffff18;
+      pointer-events: auto;
+    }
+    #stick {
+      position: absolute;
+      left: 35px;
+      top: 35px;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: #ffffff66;
+    }
+    .hidden { display: none !important; }
+    @media (min-width: 800px) {
+      #joystick { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div>생존 시간: <b id="time">00:00</b>　레벨: <b id="level">1</b>　처치: <b id="kills">0</b></div>
+    <div class="bar"><div id="hpFill" class="fill"></div></div>
+    <div class="bar"><div id="xpFill" class="fill"></div></div>
+  </div>
+
+  <button id="pause" class="hidden">Ⅱ</button>
+
+  <div id="joystick" class="hidden"><div id="stick"></div></div>
+
+  <section id="menu" class="screen">
+    <div class="panel">
+      <h1>뱀서라이크 생존 액션</h1>
+      <p>WASD 또는 방향키로 이동하세요.<br>공격은 자동으로 발동됩니다.</p>
+      <button id="start">게임 시작</button>
+    </div>
+  </section>
+
+  <section id="levelup" class="screen hidden">
+    <div class="panel">
+      <h1>레벨 업!</h1>
+      <div id="choices" class="cards"></div>
+    </div>
+  </section>
+
+  <section id="pauseScreen" class="screen hidden">
+    <div class="panel">
+      <h1>일시정지</h1>
+      <button id="resume">계속하기</button>
+      <button id="restart">다시 시작</button>
+    </div>
+  </section>
+
+  <section id="result" class="screen hidden">
+    <div class="panel">
+      <h1 id="resultTitle">게임 오버</h1>
+      <p id="resultText"></p>
+      <button id="again">다시 하기</button>
+    </div>
+  </section>
+
+<script>
+const canvas = document.querySelector("#game");
+const ctx = canvas.getContext("2d");
+const image = new Image();
+image.src = "1.png";
+
+let W = 0, H = 0, dpr = 1;
+let atlas = null;
+let last = 0;
+let state = "menu";
+let spawnTimer = 0;
+let attackTimer = 0;
+let bossTimers = new Set();
+
+const keys = new Set();
+const enemies = [];
+const projectiles = [];
+const gems = [];
+const effects = [];
+
+const player = {
+  x: 0, y: 0, radius: 18,
+  hp: 100, maxHp: 100,
+  speed: 180, damage: 10,
+  attackSpeed: 0.9, pickup: 70,
+  level: 1, xp: 0, nextXp: 37,
+  invincible: 0
+};
+
+const stats = {
+  time: 0, kills: 0, bossKills: 0, score: 0
+};
+
+const spriteRects = {
+  zombie: [86, 48, 136, 132],
+  boar: [301, 64, 104, 114],
+  skeleton: [496, 48, 96, 128],
+  orc: [697, 48, 116, 128],
+  minotaur: [188, 298, 132, 116],
+  necromancer: [423, 287, 108, 118],
+  imugi: [598, 276, 112, 138]
+};
+
+const enemyTypes = {
+  zombie: { hp: 28, speed: 48, radius: 19, xp: 2, damage: 8 },
+  boar: { hp: 45, speed: 82, radius: 20, xp: 3, damage: 12, minTime: 180 },
+  skeleton: { hp: 55, speed: 38, radius: 17, xp: 4, damage: 10, minTime: 240 },
+  orc: { hp: 100, speed: 34, radius: 25, xp: 8, damage: 18, minTime: 420 },
+  minotaur: { hp: 800, speed: 42, radius: 38, xp: 40, damage: 25, boss: true },
+  necromancer: { hp: 1800, speed: 28, radius: 42, xp: 80, damage: 30, boss: true },
+  imugi: { hp: 3500, speed: 24, radius: 48, xp: 150, damage: 40, boss: true }
+};
+
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth;
+  H = innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!player.x) {
+    player.x = W / 2;
+    player.y = H / 2;
+  }
+}
+addEventListener("resize", resize);
+resize();
+
+image.onload = () => {
+  atlas = document.createElement("canvas");
+  atlas.width = image.naturalWidth;
+  atlas.height = image.naturalHeight;
+  const a = atlas.getContext("2d");
+  a.drawImage(image, 0, 0);
+  const pixels = a.getImageData(0, 0, atlas.width, atlas.height);
+  for (let i = 0; i < pixels.data.length; i += 4) {
+    if (pixels.data[i] > 242 && pixels.data[i + 1] > 242 && pixels.data[i + 2] > 242) {
+      pixels.data[i + 3] = 0;
+    }
+  }
+  a.putImageData(pixels, 0, 0);
+};
+
+function resetGame() {
+  enemies.length = 0;
+  projectiles.length = 0;
+  gems.length = 0;
+  effects.length = 0;
+  bossTimers.clear();
+
+  Object.assign(player, {
+    x: W / 2, y: H / 2, hp: 100, maxHp: 100,
+    speed: 180, damage: 10, attackSpeed: .9,
+    pickup: 70, level: 1, xp: 0, nextXp: 37, invincible: 0
+  });
+  Object.assign(stats, { time: 0, kills: 0, bossKills: 0, score: 0 });
+  spawnTimer = 0;
+  attackTimer = 0;
+}
+
+function startGame() {
+  resetGame();
+  state = "playing";
+  menu.classList.add("hidden");
+  result.classList.add("hidden");
+  pauseScreen.classList.add("hidden");
+  hud.classList.remove("hidden");
+  pause.classList.remove("hidden");
+  joystick.classList.remove("hidden");
+}
+
+function togglePause() {
+  if (state === "playing") {
+    state = "paused";
+    pauseScreen.classList.remove("hidden");
+  } else if (state === "paused") {
+    state = "playing";
+    pauseScreen.classList.add("hidden");
+  }
+}
+
+function spawnEnemy(type = randomEnemyType()) {
+  if (enemies.length >= 250) return;
+
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.max(W, H) * .65 + 100;
+  const data = enemyTypes[type];
+
+  enemies.push({
+    type,
+    x: player.x + Math.cos(angle) * distance,
+    y: player.y + Math.sin(angle) * distance,
+    hp: data.hp * Math.pow(1.08, Math.floor(stats.time / 60)),
+    maxHp: data.hp * Math.pow(1.08, Math.floor(stats.time / 60)),
+    radius: data.radius,
+    speed: data.speed * (1 + Math.min(.4, Math.floor(stats.time / 120) * .05)),
+    hitTimer: 0,
+    boss: data.boss || false
+  });
+}
+
+function randomEnemyType() {
+  const t = stats.time;
+  const choices = ["zombie"];
+  if (t >= 180) choices.push("boar");
+  if (t >= 240) choices.push("skeleton");
+  if (t >= 420) choices.push("orc");
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
+function spawnBoss(type) {
+  if (bossTimers.has(type)) return;
+  bossTimers.add(type);
+  spawnEnemy(type);
+  effects.push({ x: W / 2, y: H / 2, text: `${type} 등장!`, life: 3, max: 3 });
+}
+
+function nearestEnemy() {
+  let best = null;
+  let distance = Infinity;
+  for (const e of enemies) {
+    const d = Math.hypot(e.x - player.x, e.y - player.y);
+    if (d < distance) {
+      distance = d;
+      best = e;
+    }
+  }
+  return best;
+}
+
+function shoot() {
+  const target = nearestEnemy();
+  if (!target) return;
+
+  const dx = target.x - player.x;
+  const dy = target.y - player.y;
+  const length = Math.hypot(dx, dy) || 1;
+
+  projectiles.push({
+    x: player.x, y: player.y,
+    vx: dx / length * 500,
+    vy: dy / length * 500,
+    radius: 7, damage: player.damage,
+    life: .9, pierce: 1
+  });
+}
+
+function gainXp(value) {
+  player.xp += value;
+  stats.score += value * 10;
+
+  while (player.xp >= player.nextXp) {
+    player.xp -= player.nextXp;
+    player.level++;
+    player.nextXp = Math.floor(20 + player.level * 15 + Math.pow(player.level, 1.4) * 2);
+    showLevelUp();
+  }
+}
+
+function showLevelUp() {
+  if (state === "levelup") return;
+  state = "levelup";
+  levelup.classList.remove("hidden");
+
+  const upgrades = [
+    ["공격력 강화", "공격력 +25%", () => player.damage *= 1.25],
+    ["신속", "이동 속도 +15%", () => player.speed *= 1.15],
+    ["공격 속도", "공격 주기 -15%", () => player.attackSpeed *= .85],
+    ["최대 체력", "최대 체력 +20 및 회복", () => {
+      player.maxHp += 20;
+      player.hp = player.maxHp;
+    }],
+    ["자석", "경험치 획득 범위 +40px", () => player.pickup += 40]
+  ];
+
+  const selected = [...upgrades].sort(() => Math.random() - .5).slice(0, 3);
+  choices.innerHTML = "";
+
+  selected.forEach(([name, description, apply], index) => {
+    const card = document.createElement("button");
+    card.className = "card";
+    card.innerHTML = `<b>${index + 1}. ${name}</b><br><small>${description}</small>`;
+    card.onclick = () => {
+      apply();
+      levelup.classList.add("hidden");
+      state = "playing";
+    };
+    choices.appendChild(card);
+  });
+}
+
+function update(dt) {
+  stats.time += dt;
+  player.invincible = Math.max(0, player.invincible - dt);
+
+  const direction = getMovement();
+  player.x += direction.x * player.speed * dt;
+  player.y += direction.y * player.speed * dt;
+  player.x = Math.max(player.radius, Math.min(W - player.radius, player.x));
+  player.y = Math.max(player.radius, Math.min(H - player.radius, player.y));
+
+  const interval =
+    stats.time < 120 ? 2 :
+    stats.time < 300 ? 1.2 :
+    stats.time < 600 ? .8 : .5;
+
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    spawnEnemy();
+    spawnTimer = interval;
+  }
+
+  if (stats.time >= 300) spawnBoss("minotaur");
+  if (stats.time >= 600) spawnBoss("necromancer");
+  if (stats.time >= 900) spawnBoss("imugi");
+
+  attackTimer -= dt;
+  if (attackTimer <= 0) {
+    shoot();
+    attackTimer = player.attackSpeed;
+  }
+
+  for (const e of enemies) {
+    const dx = player.x - e.x;
+    const dy = player.y - e.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    e.x += dx / distance * e.speed * dt;
+    e.y += dy / distance * e.speed * dt;
+
+    if (distance < e.radius + player.radius && player.invincible <= 0) {
+      player.hp -= enemyTypes[e.type].damage;
+      player.invincible = .7;
+      if (player.hp <= 0) endGame(false);
+    }
+  }
+
+  for (const p of projectiles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+
+    for (const e of enemies) {
+      if (e.hp <= 0) continue;
+      if (Math.hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius) {
+        e.hp -= p.damage;
+        p.pierce--;
+        effects.push({ x: e.x, y: e.y, text: Math.round(p.damage), life: .5, max: .5 });
+        if (p.pierce < 0) p.life = 0;
+        break;
+      }
+    }
+  }
+
+  for (const g of gems) {
+    const dx = player.x - g.x;
+    const dy = player.y - g.y;
+    const distance = Math.hypot(dx, dy) || 1;
+
+    if (distance < player.pickup) {
+      g.x += dx / distance * 260 * dt;
+      g.y += dy / distance * 260 * dt;
+    }
+    if (distance < 24) {
+      g.collected = true;
+      gainXp(g.value);
+    }
+  }
+
+  for (const e of enemies) {
+    if (e.hp <= 0 && !e.dead) {
+      e.dead = true;
+      stats.kills++;
+      if (e.boss) {
+        stats.bossKills++;
+        if (e.type === "imugi") endGame(true);
+      }
+      gems.push({ x: e.x, y: e.y, value: enemyTypes[e.type].xp });
+    }
+  }
+
+  for (const e of enemies) e.hitTimer -= dt;
+  for (const p of projectiles) p.life -= 0;
+  for (const f of effects) f.life -= dt;
+
+  cleanup();
+  updateHud();
+}
+
+function cleanup() {
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    if (enemies[i].dead) enemies.splice(i, 1);
+  }
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    if (projectiles[i].life <= 0) projectiles.splice(i, 1);
+  }
+  for (let i = gems.length - 1; i >= 0; i--) {
+    if (gems[i].collected) gems.splice(i, 1);
+  }
+  for (let i = effects.length - 1; i >= 0; i--) {
+    if (effects[i].life <= 0) effects.splice(i, 1);
+  }
+}
+
+function getMovement() {
+  let x = 0, y = 0;
+  if (keys.has("KeyA") || keys.has("ArrowLeft")) x--;
+  if (keys.has("KeyD") || keys.has("ArrowRight")) x++;
+  if (keys.has("KeyW") || keys.has("ArrowUp")) y--;
+  if (keys.has("KeyS") || keys.has("ArrowDown")) y++;
+
+  x += joystickVector.x;
+  y += joystickVector.y;
+
+  const length = Math.hypot(x, y) || 1;
+  return { x: x / Math.max(1, length), y: y / Math.max(1, length) };
+}
+
+function drawSprite(type, x, y, size) {
+  if (!atlas) {
+    ctx.fillStyle = "#8ac926";
+    ctx.fillRect(x - size / 2, y - size / 2, size, size);
+    return;
+  }
+  const [sx, sy, sw, sh] = spriteRects[type];
+  ctx.drawImage(atlas, sx, sy, sw, sh, x - size / 2, y - size / 2, size, size);
+}
+
+function render() {
+  ctx.fillStyle = "#171b29";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "#242b3e";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 48) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 48) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+
+  for (const g of gems) {
+    ctx.fillStyle = "#06d6a0";
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y - 7);
+    ctx.lineTo(g.x + 7, g.y);
+    ctx.lineTo(g.x, g.y + 7);
+    ctx.lineTo(g.x - 7, g.y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  for (const p of projectiles) {
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  for (const e of enemies) {
+    drawSprite(e.type, e.x, e.y, e.radius * 2.5);
+    if (e.boss || e.hp < e.maxHp) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(e.x - 28, e.y - e.radius - 10, 56, 5);
+      ctx.fillStyle = "#ef476f";
+      ctx.fillRect(e.x - 28, e.y - e.radius - 10, 56 * Math.max(0, e.hp / e.maxHp), 5);
+    }
+  }
+
+  ctx.fillStyle = player.invincible > 0 ? "#ffffff" : "#4cc9f0";
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 14px sans-serif";
+  for (const f of effects) {
+    ctx.globalAlpha = f.life / f.max;
+    ctx.fillText(f.text, f.x, f.y - (1 - f.life / f.max) * 25);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function updateHud() {
+  const minutes = Math.floor(stats.time / 60).toString().padStart(2, "0");
+  const seconds = Math.floor(stats.time % 60).toString().padStart(2, "0");
+  time.textContent = `${minutes}:${seconds}`;
+  level.textContent = player.level;
+  kills.textContent = stats.kills;
+  hpFill.style.width = `${Math.max(0, player.hp / player.maxHp * 100)}%`;
+  xpFill.style.width = `${player.xp / player.nextXp * 100}%`;
+}
+
+function endGame(won) {
+  if (state === "gameover" || state === "victory") return;
+  state = won ? "victory" : "gameover";
+  hud.classList.add("hidden");
+  pause.classList.add("hidden");
+  joystick.classList.add("hidden");
+  result.classList.remove("hidden");
+  resultTitle.textContent = won ? "승리!" : "게임 오버";
+  resultText.innerHTML =
+    `생존 시간: ${Math.floor(stats.time)}초<br>` +
+    `처치 수: ${stats.kills}<br>` +
+    `보스 처치: ${stats.bossKills}<br>` +
+    `레벨: ${player.level}<br>` +
+    `점수: ${stats.score}`;
+}
+
+function loop(now) {
+  const dt = Math.min((now - last) / 1000 || 0, .05);
+  last = now;
+  if (state === "playing") update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+const joystickVector = { x: 0, y: 0 };
+let joystickId = null;
+
+function moveJoystick(touch) {
+  const rect = joystick.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  let x = touch.clientX - cx;
+  let y = touch.clientY - cy;
+  const distance = Math.hypot(x, y);
+  const max = 45;
+  if (distance > max) {
+    x = x / distance * max;
+    y = y / distance * max;
+  }
+  joystickVector.x = x / max;
+  joystickVector.y = y / max;
+  stick.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+joystick.addEventListener("touchstart", e => {
+  e.preventDefault();
+  if (joystickId === null) {
+    joystickId = e.changedTouches[0].identifier;
+    moveJoystick(e.changedTouches[0]);
+  }
+}, { passive: false });
+
+joystick.addEventListener("touchmove", e => {
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    if (touch.identifier === joystickId) moveJoystick(touch);
+  }
+}, { passive: false });
+
+joystick.addEventListener("touchend", e => {
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    if (touch.identifier === joystickId) {
+      joystickId = null;
+      joystickVector.x = joystickVector.y = 0;
+      stick.style.transform = "";
+    }
+  }
+}, { passive: false });
+
+addEventListener("keydown", e => {
+  keys.add(e.code);
+  if (e.code === "Escape") togglePause();
+  if (state === "levelup" && ["Digit1", "Digit2", "Digit3"].includes(e.code)) {
+    document.querySelectorAll(".card")[Number(e.code.at(-1)) - 1]?.click();
+  }
+});
+addEventListener("keyup", e => keys.delete(e.code));
+
+start.onclick = startGame;
+again.onclick = startGame;
+pause.onclick = togglePause;
+resume.onclick = togglePause;
+restart.onclick = startGame;
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
