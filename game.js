@@ -64,8 +64,8 @@ const enemyTypes = {
   minotaur: { hp: 800, speed: 42, radius: 38, xp: 40, damage: 25, boss: true },
   necromancer: { hp: 1800, speed: 28, radius: 42, xp: 80, damage: 30, boss: true },
   imugi: { hp: 3500, speed: 24, radius: 48, xp: 150, damage: 40, boss: true },
-  giantZombieRat: { hp: 720, speed: 68, radius: 36, xp: 60, damage: 24, boss: true },
-  giantEnhancedZombie: { hp: 1400, speed: 34, radius: 46, xp: 100, damage: 36, boss: true }
+  giantZombieRat: { hp: 720, speed: 68, radius: 57.6, xp: 60, damage: 24, boss: true },
+  giantEnhancedZombie: { hp: 1400, speed: 57.8, radius: 73.6, xp: 100, damage: 36, boss: true }
 };
 
 const characterCatalog = [
@@ -269,8 +269,8 @@ function addPassive(id, levels = 1) {
 
 function getUpgradeAmount() {
   const roll = Math.random();
-  if (roll < 0.08) return 3;
-  if (roll < 0.28) return 2;
+  if (roll < 0.001) return 3;
+  if (roll < 0.011) return 2;
   return 1;
 }
 
@@ -420,6 +420,7 @@ function spawnEnemy(type = randomEnemyType(), spawnPosition = null) {
     bossTimer: type === "giantZombieRat" ? 1.5 : 2.2,
     nextAttack: "slam",
     dashCloudTimer: 0,
+    poisonDartTimer: 2.5,
     attackDirection: 0,
     boss: data.boss || false
   });
@@ -437,7 +438,7 @@ function randomEnemyType() {
 function spawnBoss(type) {
   if (bossTimers.has(type)) return;
   bossTimers.add(type);
-  if (!activeArena) activeArena = { x: player.x, y: player.y, radius: 360, type };
+  if (!activeArena) activeArena = { x: player.x, y: player.y, radius: 468, type };
   else activeArena.type = type;
   bossFightRemaining = 120;
   const angle = Math.random() * Math.PI * 2;
@@ -483,6 +484,18 @@ function spawnThrownCar(boss) {
   effects.push({ x: boss.x, y: boss.y - 50, text: "차량 투척!", life: .7, max: .7 });
 }
 
+function spawnPoisonDart(boss) {
+  const direction = directionToPlayer(boss);
+  bossProjectiles.push({
+    type: "poisonDart",
+    x: boss.x, y: boss.y,
+    vx: direction.x * 300, vy: direction.y * 300,
+    radius: 10, damage: 16, life: 2.2, trailTimer: 0,
+    angle: Math.atan2(direction.y, direction.x)
+  });
+  effects.push({ x: boss.x, y: boss.y - 42, text: "독침!", life: .6, max: .6 });
+}
+
 function performFanSlam(boss) {
   const dx = player.x - boss.x;
   const dy = player.y - boss.y;
@@ -494,8 +507,21 @@ function performFanSlam(boss) {
   effects.push({ x: boss.x, y: boss.y, text: "충격파!", life: .65, max: .65 });
 }
 
+function performForwardSweep(boss) {
+  const dx = player.x - boss.x;
+  const dy = player.y - boss.y;
+  const distance = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  let difference = Math.abs(angle - boss.attackDirection);
+  if (difference > Math.PI) difference = Math.PI * 2 - difference;
+  if (distance < 115 && difference < Math.PI / 3) damagePlayer(28);
+  effects.push({ x: boss.x, y: boss.y, text: "전방 휩쓸기!", life: .65, max: .65 });
+}
+
 function updateBossBehavior(boss, dt) {
-  boss.bossTimer -= dt;
+  const enrageMultiplier = boss.hp <= boss.maxHp / 2 ? 1.3 : 1;
+  boss.bossTimer -= dt * enrageMultiplier;
+  const movementSpeed = boss.speed * enrageMultiplier;
   if (boss.type === "giantZombieRat") {
     if (boss.bossState === "ratWindup") {
       if (boss.bossTimer <= 0) {
@@ -516,7 +542,7 @@ function updateBossBehavior(boss, dt) {
         boss.bossTimer = .8;
         return { x: 0, y: 0, speed: 0 };
       }
-      return { x: boss.dashX, y: boss.dashY, speed: 460 };
+      return { x: boss.dashX, y: boss.dashY, speed: 460 * enrageMultiplier };
     }
     if (boss.bossState === "recover") {
       if (boss.bossTimer <= 0) {
@@ -524,6 +550,11 @@ function updateBossBehavior(boss, dt) {
         boss.bossTimer = 2.1;
       }
       return { x: 0, y: 0, speed: 0 };
+    }
+    boss.poisonDartTimer -= dt * enrageMultiplier;
+    if (boss.poisonDartTimer <= 0) {
+      spawnPoisonDart(boss);
+      boss.poisonDartTimer = 2.4 + Math.random() * .8;
     }
     if (boss.bossTimer <= 0) {
       const direction = directionToPlayer(boss);
@@ -535,16 +566,40 @@ function updateBossBehavior(boss, dt) {
       effects.push({ x: boss.x, y: boss.y - 50, text: "돌진 준비!", life: .65, max: .65 });
       return { x: 0, y: 0, speed: 0 };
     }
-    return { ...directionToPlayer(boss), speed: boss.speed };
+    return { ...directionToPlayer(boss), speed: movementSpeed };
   }
 
-  if (boss.bossState === "slamWindup" || boss.bossState === "throwWindup") {
+  if (boss.bossState === "chargeWindup") {
     if (boss.bossTimer <= 0) {
-      if (boss.bossState === "slamWindup") performFanSlam(boss);
-      else spawnThrownCar(boss);
+      boss.bossState = "charge";
+      boss.bossTimer = 1.05;
+      boss.dashCloudTimer = 0;
+    }
+    return { x: 0, y: 0, speed: 0 };
+  }
+  if (boss.bossState === "charge") {
+    boss.dashCloudTimer -= dt;
+    if (boss.dashCloudTimer <= 0 && bossHazards.length < 50) {
+      bossHazards.push({ x: boss.x, y: boss.y, radius: 72, life: 1.1, damage: 22, damageTimer: 0, type: "shockwave" });
+      boss.dashCloudTimer = .12;
+    }
+    if (boss.bossTimer <= 0) {
       boss.bossState = "recover";
       boss.bossTimer = 1;
-      boss.nextAttack = boss.nextAttack === "slam" ? "throw" : "slam";
+      boss.nextAttack = "sweep";
+      return { x: 0, y: 0, speed: 0 };
+    }
+    return { x: boss.dashX, y: boss.dashY, speed: 520 * enrageMultiplier };
+  }
+  if (boss.bossState === "slamWindup" || boss.bossState === "throwWindup" || boss.bossState === "sweepWindup") {
+    if (boss.bossTimer <= 0) {
+      if (boss.bossState === "slamWindup") performFanSlam(boss);
+      else if (boss.bossState === "throwWindup") spawnThrownCar(boss);
+      else performForwardSweep(boss);
+      boss.bossState = "recover";
+      boss.bossTimer = 1;
+      const attackCycle = ["slam", "throw", "charge", "sweep"];
+      boss.nextAttack = attackCycle[(attackCycle.indexOf(boss.nextAttack) + 1) % attackCycle.length];
     }
     return { x: 0, y: 0, speed: 0 };
   }
@@ -557,11 +612,21 @@ function updateBossBehavior(boss, dt) {
   }
   if (boss.bossTimer <= 0) {
     boss.attackDirection = Math.atan2(player.y - boss.y, player.x - boss.x);
-    boss.bossState = boss.nextAttack === "throw" ? "throwWindup" : "slamWindup";
-    boss.bossTimer = boss.nextAttack === "throw" ? .7 : .9;
+    if (boss.nextAttack === "charge") {
+      const direction = directionToPlayer(boss);
+      boss.dashX = direction.x;
+      boss.dashY = direction.y;
+      boss.attackDirection = Math.atan2(direction.y, direction.x);
+      boss.bossState = "chargeWindup";
+      boss.bossTimer = .8;
+    } else {
+      boss.bossState = boss.nextAttack === "throw" ? "throwWindup" :
+        boss.nextAttack === "sweep" ? "sweepWindup" : "slamWindup";
+      boss.bossTimer = boss.nextAttack === "throw" ? .7 : boss.nextAttack === "sweep" ? .65 : .9;
+    }
     return { x: 0, y: 0, speed: 0 };
   }
-  return { ...directionToPlayer(boss), speed: boss.speed };
+  return { ...directionToPlayer(boss), speed: movementSpeed };
 }
 
 function updateBossHazards(dt) {
@@ -583,6 +648,16 @@ function updateBossProjectiles(dt) {
     projectile.x += projectile.vx * dt;
     projectile.y += projectile.vy * dt;
     projectile.life -= dt;
+    if (projectile.type === "poisonDart") {
+      projectile.trailTimer -= dt;
+      while (projectile.trailTimer <= 0 && projectile.life > 0 && bossHazards.length < 50) {
+        bossHazards.push({
+          x: projectile.x, y: projectile.y, radius: 26, life: 3.2,
+          damage: 8, damageTimer: 0, type: "poison"
+        });
+        projectile.trailTimer += .12;
+      }
+    }
     if (Math.hypot(player.x - projectile.x, player.y - projectile.y) < player.radius + projectile.radius) {
       damagePlayer(projectile.damage);
       projectile.life = 0;
@@ -1139,6 +1214,7 @@ function drawCar(x, y, angle, color) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
+  ctx.scale(2, 2);
   ctx.fillStyle = "#080a10aa";
   ctx.fillRect(-21, -11, 42, 24);
   ctx.fillStyle = color;
@@ -1201,13 +1277,13 @@ function cityTileObjects(tileX, tileY) {
     const x = laneX || 60 + random() * (map.width - 120);
     const y = laneY || 60 + random() * (map.height - 120);
     const vertical = Math.abs(Math.sin(angle)) > .5;
-    const width = vertical ? 24 : 42;
-    const height = vertical ? 42 : 24;
+    const width = vertical ? 48 : 84;
+    const height = vertical ? 84 : 48;
     return {
       id: `car:${tileX}:${tileY}:${index}`,
       kind: "car", x: originX + x - width / 2, y: originY + y - height / 2,
-      width, height, angle, color, maxHp: 45,
-      hp: carHealth.get(`car:${tileX}:${tileY}:${index}`) ?? 45
+      width, height, angle, color, maxHp: 1,
+      hp: carHealth.get(`car:${tileX}:${tileY}:${index}`) ?? 1
     };
   });
   const objects = [...buildings, ...cars];
@@ -1513,6 +1589,7 @@ function drawMap() {
 function drawBoss(boss, x, y) {
   ctx.save();
   ctx.translate(x, y);
+  ctx.scale(1.6, 1.6);
   if (boss.type === "giantZombieRat") {
     const direction = directionToPlayer(boss);
     ctx.rotate(Math.atan2(direction.y, direction.x));
@@ -1620,6 +1697,13 @@ function drawBossTelegraph(boss, position) {
     ctx.moveTo(position.x, position.y);
     ctx.lineTo(position.x + Math.cos(boss.attackDirection) * 310, position.y + Math.sin(boss.attackDirection) * 310);
     ctx.stroke();
+  } else if (boss.bossState === "chargeWindup") {
+    ctx.strokeStyle = "#ff8c42cc";
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.moveTo(position.x, position.y);
+    ctx.lineTo(position.x + Math.cos(boss.attackDirection) * 360, position.y + Math.sin(boss.attackDirection) * 360);
+    ctx.stroke();
   } else if (boss.bossState === "slamWindup") {
     ctx.fillStyle = "#f0a14e44";
     ctx.beginPath();
@@ -1637,6 +1721,16 @@ function drawBossTelegraph(boss, position) {
     ctx.moveTo(position.x, position.y);
     ctx.lineTo(player.x - camera.x + W / 2, player.y - camera.y + H / 2);
     ctx.stroke();
+  } else if (boss.bossState === "sweepWindup") {
+    ctx.fillStyle = "#d6bd7144";
+    ctx.beginPath();
+    ctx.moveTo(position.x, position.y);
+    ctx.arc(position.x, position.y, 115, boss.attackDirection - Math.PI / 3, boss.attackDirection + Math.PI / 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#f3d994bb";
+    ctx.lineWidth = 3;
+    ctx.stroke();
   }
 }
 
@@ -1646,18 +1740,36 @@ function render() {
 
   for (const hazard of bossHazards) {
     const position = screenPosition(hazard);
-    ctx.fillStyle = `rgba(83, 174, 55, ${Math.min(.38, hazard.life / 10)})`;
+    const shockwave = hazard.type === "shockwave";
+    ctx.fillStyle = shockwave
+      ? `rgba(255, 155, 65, ${Math.min(.38, hazard.life / 3)})`
+      : `rgba(83, 174, 55, ${Math.min(.38, hazard.life / 10)})`;
     ctx.beginPath();
     ctx.arc(position.x, position.y, hazard.radius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#b7df66aa";
+    ctx.strokeStyle = shockwave ? "#ffd07aaa" : "#b7df66aa";
     ctx.lineWidth = 2;
     ctx.stroke();
   }
 
   for (const projectile of bossProjectiles) {
     const position = screenPosition(projectile);
-    drawCar(position.x, position.y, projectile.angle, "#986f4d");
+    if (projectile.type === "poisonDart") {
+      ctx.save();
+      ctx.translate(position.x, position.y);
+      ctx.rotate(projectile.angle);
+      ctx.fillStyle = "#9be85a";
+      ctx.beginPath();
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-7, -5);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-7, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    } else {
+      drawCar(position.x, position.y, projectile.angle, "#986f4d");
+    }
   }
 
   for (const drop of carDrops) {
