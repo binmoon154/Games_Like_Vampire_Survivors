@@ -14,6 +14,8 @@ let bossFightRemaining = 0;
 let bossTimers = new Set();
 const map = { width: 1600, height: 1000 };
 const camera = { x: 0, y: 0 };
+let currentMap = "ruins";
+let sewerDamageTimer = 0;
 
 const keys = new Set();
 const enemies = [];
@@ -25,6 +27,7 @@ const destroyedCars = new Set();
 const carHealth = new Map();
 const carDrops = [];
 const cityTileCache = new Map();
+const sewerTileCache = new Map();
 let worldSeed = Math.floor(Math.random() * 0xffffffff);
 const bossHazards = [];
 const bossProjectiles = [];
@@ -112,8 +115,8 @@ const passiveCatalog = [
 ];
 
 const mapCatalog = [
-  { name: "폐허 지대", description: "거대 좀비 쥐와 거대 강화 좀비를 상대하는 첫 번째 지역.", stats: "보스 3분/5분 · 둘 다 처치하면 클리어" },
-  { name: "얼어붙은 통로", description: "차가운 바닥이 이어진 다음 지역. 이후 업데이트 예정.", stats: "잠김 · 추가 맵 준비 중" }
+  { id: "ruins", name: "폐허 지대", description: "거대 좀비 쥐와 거대 강화 좀비를 상대하는 첫 번째 지역.", stats: "보스 3분/5분 · 둘 다 처치하면 클리어" },
+  { id: "sewer", name: "하수구", description: "수로와 다리, 오염 웅덩이가 이어지는 지하 배수 시설.", stats: "오염 웅덩이 주의 · 보스 3분/5분" }
 ];
 
 function resize() {
@@ -161,6 +164,7 @@ function resetGame() {
   bossFightRemaining = 0;
   carDrops.length = 0;
   cityTileCache.clear();
+  sewerTileCache.clear();
   worldSeed = Math.floor(Math.random() * 0xffffffff);
   destroyedBuildings.clear();
   destroyedCars.clear();
@@ -178,6 +182,7 @@ function resetGame() {
   Object.assign(stats, { time: 0, kills: 0, bossKills: 0, score: 0 });
   spawnTimer = 0;
   attackTimer = 0;
+  sewerDamageTimer = 0;
 
   for (let i = 0; i < 8; i++) spawnEnemy();
 }
@@ -290,7 +295,7 @@ function showRoom(room) {
     },
     map: {
       title: "맵 선택실",
-      items: mapCatalog.map((item, index) => ({ name: item.name, description: item.description, icon: index === 0 ? "▦" : "?", rank: index === 0 ? 4 : 1 }))
+      items: mapCatalog.map((item, index) => ({ name: item.name, description: item.description, icon: index === 0 ? "▦" : "≋", rank: index === 0 ? 4 : 3 }))
     }
   };
   const selected = catalogs[room];
@@ -331,7 +336,8 @@ function closeRoomView() {
   codex.classList.remove("hidden");
 }
 
-function startGame() {
+function startGame(mapId = "ruins") {
+  currentMap = mapCatalog.some(mapData => mapData.id === mapId) ? mapId : "ruins";
   resetGame();
   state = "playing";
   menu.classList.add("hidden");
@@ -349,19 +355,31 @@ function openNextMapSelection() {
   result.classList.add("hidden");
   mapSelectScreen.classList.remove("hidden");
   mapChoices.innerHTML = "";
-  mapSelectionStatus.textContent = selectedNextMap ? `선택됨: ${selectedNextMap}` : "맵을 선택하세요.";
-  mapCatalog.forEach((mapData, index) => {
+  mapSelectionStatus.textContent = selectedNextMap
+    ? `선택됨: ${mapCatalog.find(mapData => mapData.id === selectedNextMap)?.name}`
+    : "맵을 선택하세요.";
+  document.querySelector("#startSelectedMap").disabled = !selectedNextMap;
+  mapCatalog.forEach(mapData => {
     const card = document.createElement("button");
-    card.className = `map-choice${selectedNextMap === mapData.name ? " selected" : ""}`;
-    card.innerHTML = `<b>${mapData.name}</b><br><small>${index === 0 ? "클리어 완료" : "다음 지역"}</small><p>${mapData.description}</p>`;
+    card.className = `map-choice map-choice-${mapData.id}${selectedNextMap === mapData.id ? " selected" : ""}`;
+    card.innerHTML = `<b>${mapData.name}</b><br><small>${mapData.stats}</small><p>${mapData.description}</p>`;
     card.onclick = () => {
-      selectedNextMap = mapData.name;
-      mapSelectionStatus.textContent = `선택됨: ${selectedNextMap}`;
+      selectedNextMap = mapData.id;
+      mapSelectionStatus.textContent = `선택됨: ${mapData.name}`;
+      document.querySelector("#startSelectedMap").disabled = false;
       document.querySelectorAll(".map-choice").forEach(choice => choice.classList.remove("selected"));
       card.classList.add("selected");
     };
     mapChoices.appendChild(card);
   });
+}
+
+function startSelectedMap() {
+  if (!selectedNextMap) {
+    mapSelectionStatus.textContent = "먼저 맵을 선택하세요.";
+    return;
+  }
+  startGame(selectedNextMap);
 }
 
 function returnFromMapSelection() {
@@ -949,6 +967,21 @@ function update(dt) {
   };
   moveWithCollision(player, direction.x * player.speed * dt, direction.y * player.speed * dt, getCityObjects(playerBounds), false);
   constrainToBossArena(player);
+  sewerDamageTimer = Math.max(0, sewerDamageTimer - dt);
+  if (currentMap === "sewer" && sewerDamageTimer <= 0) {
+    const sewerBounds = {
+      x: player.x - player.radius, y: player.y - player.radius,
+      width: player.radius * 2, height: player.radius * 2
+    };
+    const inToxicPool = getSewerToxicPools(sewerBounds).some(pool =>
+      Math.hypot(player.x - pool.x, player.y - pool.y) < player.radius + pool.radius * .7
+    );
+    if (inToxicPool) {
+      damagePlayer(6);
+      sewerDamageTimer = .9;
+      effects.push({ x: player.x, y: player.y - 28, text: "오염!", life: .6, max: .6 });
+    }
+  }
   camera.x = player.x;
   camera.y = player.y;
 
@@ -1291,7 +1324,50 @@ function cityTileObjects(tileX, tileY) {
   return objects;
 }
 
+function sewerTileObjects(tileX, tileY) {
+  const tileKey = `${tileX}:${tileY}`;
+  const cached = sewerTileCache.get(tileKey);
+  if (cached) return cached;
+
+  const random = createTileRandom(tileX + 173, tileY - 251);
+  const originX = tileX * map.width;
+  const originY = tileY * map.height;
+  const poolSites = [
+    [280, 240], [1240, 240], [330, 760],
+    [1190, 760], [520, 320], [1060, 680]
+  ];
+  const pools = [];
+  for (let index = poolSites.length - 1; index > 0; index--) {
+    const other = Math.floor(random() * (index + 1));
+    [poolSites[index], poolSites[other]] = [poolSites[other], poolSites[index]];
+  }
+  for (const [x, y] of poolSites.slice(0, 3)) {
+    pools.push({
+      x: originX + x + (random() - .5) * 70,
+      y: originY + y + (random() - .5) * 70,
+      radius: 34 + random() * 18
+    });
+  }
+  sewerTileCache.set(tileKey, pools);
+  return pools;
+}
+
+function getSewerToxicPools(bounds) {
+  const pools = [];
+  const left = Math.floor((bounds.x - 60) / map.width);
+  const right = Math.floor((bounds.x + bounds.width + 60) / map.width);
+  const top = Math.floor((bounds.y - 60) / map.height);
+  const bottom = Math.floor((bounds.y + bounds.height + 60) / map.height);
+  for (let tileY = top; tileY <= bottom; tileY++) {
+    for (let tileX = left; tileX <= right; tileX++) {
+      pools.push(...sewerTileObjects(tileX, tileY));
+    }
+  }
+  return pools;
+}
+
 function getCityObjects(bounds) {
+  if (currentMap === "sewer") return [];
   const objects = [];
   const left = Math.floor(bounds.x / map.width);
   const right = Math.floor((bounds.x + bounds.width) / map.width);
@@ -1553,6 +1629,118 @@ function drawCityTile(originX, originY, tileX, tileY) {
   }
 }
 
+function drawSewerTile(originX, originY, tileX, tileY) {
+  ctx.save();
+  ctx.fillStyle = (tileX + tileY) % 2 === 0 ? "#292d2c" : "#2d3130";
+  ctx.fillRect(originX, originY, map.width, map.height);
+
+  ctx.strokeStyle = "#383d39";
+  ctx.lineWidth = 2;
+  for (let x = 0; x <= map.width; x += 80) {
+    ctx.beginPath();
+    ctx.moveTo(originX + x, originY);
+    ctx.lineTo(originX + x, originY + map.height);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= map.height; y += 80) {
+    ctx.beginPath();
+    ctx.moveTo(originX, originY + y);
+    ctx.lineTo(originX + map.width, originY + y);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "#111e22";
+  ctx.fillRect(originX, originY + 425, map.width, 150);
+  ctx.fillRect(originX + 730, originY, 140, map.height);
+  ctx.fillStyle = "#29464a";
+  ctx.fillRect(originX, originY + 432, map.width, 5);
+  ctx.fillRect(originX, originY + 563, map.width, 5);
+  ctx.fillRect(originX + 737, originY, 5, map.height);
+  ctx.fillRect(originX + 858, originY, 5, map.height);
+
+  const random = createTileRandom(tileX - 89, tileY + 307);
+  ctx.strokeStyle = "#54707666";
+  ctx.lineWidth = 3;
+  for (let index = 0; index < 12; index++) {
+    const x = originX + random() * map.width;
+    const y = originY + 445 + random() * 110;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 12 + random() * 24, 2 + random() * 3, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  for (const [bridgeX, bridgeY, bridgeWidth, bridgeHeight] of [
+    [260, 408, 82, 184], [1258, 408, 82, 184],
+    [708, 190, 184, 76], [708, 734, 184, 76]
+  ]) {
+    ctx.fillStyle = "#5a5a50";
+    ctx.fillRect(originX + bridgeX, originY + bridgeY, bridgeWidth, bridgeHeight);
+    ctx.fillStyle = "#77776a";
+    ctx.fillRect(originX + bridgeX + 7, originY + bridgeY + 7, bridgeWidth - 14, bridgeHeight - 14);
+    ctx.strokeStyle = "#41453f";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(originX + bridgeX + 7, originY + bridgeY + 7, bridgeWidth - 14, bridgeHeight - 14);
+    ctx.fillStyle = "#454940";
+    if (bridgeWidth < bridgeHeight) {
+      for (let y = bridgeY + 18; y < bridgeY + bridgeHeight - 8; y += 24) {
+        ctx.fillRect(originX + bridgeX + 13, originY + y, bridgeWidth - 26, 3);
+      }
+    } else {
+      for (let x = bridgeX + 18; x < bridgeX + bridgeWidth - 8; x += 24) {
+        ctx.fillRect(originX + x, originY + bridgeY + 13, 3, bridgeHeight - 26);
+      }
+    }
+  }
+
+  ctx.lineCap = "round";
+  for (const [x1, y1, x2, y2] of [
+    [90, 100, 580, 100], [1010, 900, 1510, 900],
+    [120, 90, 120, 185], [1480, 815, 1480, 910]
+  ]) {
+    ctx.strokeStyle = "#707268";
+    ctx.lineWidth = 28;
+    ctx.beginPath();
+    ctx.moveTo(originX + x1, originY + y1);
+    ctx.lineTo(originX + x2, originY + y2);
+    ctx.stroke();
+    ctx.strokeStyle = "#9a9a85";
+    ctx.lineWidth = 8;
+    ctx.stroke();
+  }
+
+  const grates = [[540, 245], [1050, 745], [430, 830], [1320, 315]];
+  for (const [x, y] of grates) {
+    ctx.fillStyle = "#141918";
+    ctx.fillRect(originX + x, originY + y, 94, 42);
+    ctx.strokeStyle = "#747970";
+    ctx.lineWidth = 3;
+    for (let offset = 8; offset < 94; offset += 14) {
+      ctx.beginPath();
+      ctx.moveTo(originX + x + offset, originY + y + 4);
+      ctx.lineTo(originX + x + offset, originY + y + 38);
+      ctx.stroke();
+    }
+  }
+
+  for (const pool of sewerTileObjects(tileX, tileY)) {
+    const x = originX + pool.x - tileX * map.width;
+    const y = originY + pool.y - tileY * map.height;
+    ctx.fillStyle = "#526a3280";
+    ctx.beginPath();
+    ctx.ellipse(x, y, pool.radius, pool.radius * .62, .2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#a2c45b99";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = "#c1da7188";
+    ctx.beginPath();
+    ctx.arc(x - pool.radius * .25, y - 2, 4, 0, Math.PI * 2);
+    ctx.arc(x + pool.radius * .2, y + 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawMap() {
   const left = Math.floor((camera.x - W / 2) / map.width) - 1;
   const right = Math.ceil((camera.x + W / 2) / map.width) + 1;
@@ -1563,8 +1751,15 @@ function drawMap() {
     for (let tileX = left; tileX <= right; tileX++) {
       const originX = tileX * map.width - camera.x + W / 2;
       const originY = tileY * map.height - camera.y + H / 2;
-      ctx.fillStyle = (tileX + tileY) % 2 === 0 ? "#171b29" : "#1a2030";
+      ctx.fillStyle = currentMap === "sewer"
+        ? (tileX + tileY) % 2 === 0 ? "#292d2c" : "#2d3130"
+        : (tileX + tileY) % 2 === 0 ? "#171b29" : "#1a2030";
       ctx.fillRect(originX, originY, map.width, map.height);
+
+      if (currentMap === "sewer") {
+        drawSewerTile(originX, originY, tileX, tileY);
+        continue;
+      }
 
       ctx.strokeStyle = "#242b3e";
       ctx.lineWidth = 1;
@@ -1927,7 +2122,7 @@ function endGame(won) {
   pause.classList.add("hidden");
   joystick.classList.add("hidden");
   result.classList.remove("hidden");
-  resultTitle.textContent = won ? "첫 번째 맵 클리어!" : "게임 오버";
+  resultTitle.textContent = won ? (currentMap === "sewer" ? "하수구 정화 완료!" : "첫 번째 맵 클리어!") : "게임 오버";
   if (won) nextMapButton.classList.remove("hidden");
   else nextMapButton.classList.add("hidden");
   resultText.innerHTML =
@@ -2001,19 +2196,20 @@ addEventListener("keydown", e => {
 });
 addEventListener("keyup", e => keys.delete(e.code));
 
-start.onclick = startGame;
+start.onclick = () => startGame("ruins");
 codexButton.onclick = openCodex;
 closeCodex.onclick = closeCodexView;
 backToCorridor.onclick = closeRoomView;
 document.querySelectorAll(".corridor-door").forEach(door => {
   door.onclick = () => showRoom(door.dataset.room);
 });
-again.onclick = startGame;
+again.onclick = () => startGame(currentMap);
+document.querySelector("#startSelectedMap").onclick = startSelectedMap;
 nextMapButton.onclick = openNextMapSelection;
 returnFromMapSelect.onclick = returnFromMapSelection;
 pause.onclick = togglePause;
 resume.onclick = togglePause;
-restart.onclick = startGame;
+restart.onclick = () => startGame(currentMap);
 returnToMenu.onclick = returnToMainMenu;
 
 requestAnimationFrame(loop);

@@ -61,6 +61,8 @@
     }
     .map-choice { min-width: 190px; min-height: 150px; border: 2px solid #66708d; border-radius: 8px; background: #293149; color: #fff; cursor: pointer; }
     .map-choice.selected { border-color: #ffd166; box-shadow: inset 0 0 0 2px #ffd16655; }
+    .map-choice-sewer { background: linear-gradient(145deg, #334448, #1e2929 65%, #46533a); }
+    #startSelectedMap:disabled { opacity: .45; cursor: not-allowed; }
     .card:hover { border-color: #ffd166; }
     .card.level-up-1 { border: 3px solid #35d07f; }
     .card.level-up-2 { border: 3px solid #3d9bff; }
