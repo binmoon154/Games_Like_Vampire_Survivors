@@ -16,6 +16,7 @@ const map = { width: 1600, height: 1000 };
 const camera = { x: 0, y: 0 };
 let currentMap = "ruins";
 let sewerDamageTimer = 0;
+let selectedMenuMap = "ruins";
 
 const keys = new Set();
 const enemies = [];
@@ -295,7 +296,14 @@ function showRoom(room) {
     },
     map: {
       title: "맵 선택실",
-      items: mapCatalog.map((item, index) => ({ name: item.name, description: item.description, icon: index === 0 ? "▦" : "≋", rank: index === 0 ? 4 : 3 }))
+      items: mapCatalog.map((item, index) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        icon: index === 0 ? "▦" : "≋",
+        rank: index === 0 ? 4 : 3,
+        selectable: true
+      }))
     }
   };
   const selected = catalogs[room];
@@ -306,13 +314,32 @@ function showRoom(room) {
       `<i class="${index < item.rank ? "active" : ""}"></i>`
     ).join("");
     const iconStyle = item.visualClass === "weapon" ? `--weapon-color: ${item.color}` : `--book-color: ${item.color || "#202b31"}`;
-    return `<article class="room-card">
+    const isSelected = item.id === selectedMenuMap;
+    const cardContent = `
       <div class="room-card-icon ${item.visualClass || ""}" style="${iconStyle}">${item.icon}</div>
       <h3>${item.name}</h3>
       <p>${item.description}</p>
       <div class="room-bars" aria-label="등급 ${item.rank}/5">${bars}</div>
-    </article>`;
+      ${item.selectable ? `<span class="map-selected-label">${isSelected ? "선택됨" : "선택"}</span>` : ""}
+    `;
+    if (item.selectable) {
+      return `<button type="button" class="room-card map-room-card${isSelected ? " selected" : ""}" data-map-id="${item.id}" aria-pressed="${isSelected}">${cardContent}</button>`;
+    }
+    return `<article class="room-card">${cardContent}</article>`;
   }).join("");
+  if (room === "map") {
+    roomGrid.querySelectorAll(".map-room-card").forEach(card => {
+      card.onclick = () => {
+        selectedMenuMap = card.dataset.mapId;
+        roomGrid.querySelectorAll(".map-room-card").forEach(mapCard => {
+          const isSelected = mapCard.dataset.mapId === selectedMenuMap;
+          mapCard.classList.toggle("selected", isSelected);
+          mapCard.setAttribute("aria-pressed", String(isSelected));
+          mapCard.querySelector(".map-selected-label").textContent = isSelected ? "선택됨" : "선택";
+        });
+      };
+    });
+  }
   codex.classList.add("hidden");
   roomScreen.classList.remove("hidden");
 }
@@ -2196,7 +2223,7 @@ addEventListener("keydown", e => {
 });
 addEventListener("keyup", e => keys.delete(e.code));
 
-start.onclick = () => startGame("ruins");
+start.onclick = () => startGame(selectedMenuMap);
 codexButton.onclick = openCodex;
 closeCodex.onclick = closeCodexView;
 backToCorridor.onclick = closeRoomView;
